@@ -2,19 +2,18 @@
 load SEG_RVE_Info.mat
 
 % global variables that have been created contain:
+% Gminuses
+% Gpluses
 % Gxminus
 % Gxplus
 % Gyminus
 % Gyplus
 % Gzminus
 % Gzplus
+% dims
 % nx
 % ny
 % nz
-% X
-% Y
-% Z
-%
 % these variables will be used in different functions 
 
 
@@ -22,5 +21,5 @@ load SEG_RVE_Info.mat
 tic;
 LIST_SUB = ThroatFind3D_ADV(SEG_SUB,Alpha);
 t_ThroatFind3D = toc;
-
-save('ThroatFind3D','-v7.3')
+toc;
+save('ThroatFind3D','-v7.3');

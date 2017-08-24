@@ -1,4 +1,4 @@
-function [BARRIER,BARRIER_Coord,area] = ThroatBarrier3D_ADV(v,normal,A,r_cr,areas_v_min)
+function [BARRIER,BARRIER_Coord,area] = ThroatBarrier3D_ADV(v,normal,A,r_cr,areas_v_min, dims, Gpluses, Gminuses)
 
 % -- Computate CANDIDATE throat barrier and area corresponding to a CANDIDATE THROAT -- % 
 % 26-connected dilation searching process
@@ -18,21 +18,18 @@ function [BARRIER,BARRIER_Coord,area] = ThroatBarrier3D_ADV(v,normal,A,r_cr,area
 % area - candidate throat area
 % A - pore-grain binary images after marking for barrier voxels (optional output)
 
-global nx
-global ny
-global nz
-global X
-global Y
-global Z
-
 % Marking index: marking to speed up searching process (only search and examine unexamined normal void voxel)
 % 255 - normal void voxel
 % 150 - barrier voxel; 
 % 100 - base voxel; 
 % 230 - checked non-barrier void voxels
 
-barrier = find(X==v(1)&Y==v(2)&Z==v(3));
-A(barrier)=150;
+tic;
+nx = dims(1);
+ny = dims(2);
+barrier = sub2ind(dims, v(2)+1, v(1)+1, v(3)+1);
+marks = containers.Map('KeyType','uint32','ValueType','logical');
+marks(barrier) = true;
 BARRIER = barrier;
 BARRIER_Coord = v;
 
@@ -40,11 +37,9 @@ BARRIER_Coord = v;
 area = polyArea3D_ADV(BARRIER_Coord,v,normal);
 r_eff = sqrt(area/pi());
 
-
 while ~isempty(barrier) && ~isnan(area) && r_eff <= r_cr
     barrier_new = [];
-    BARRIER_Coord_new = [];
-    area_new = [];
+    barrier_coord_new = [];
     for i = 1:length(barrier)
         ind = barrier(i);
         mask_0 = [ind-nx-1, ind-1, ind+nx-1;
@@ -53,10 +48,11 @@ while ~isempty(barrier) && ~isnan(area) && r_eff <= r_cr
         mask_n1 = mask_0-nx*ny;
         mask_p1 = mask_0+nx*ny;
         mask_in = cat(3,mask_n1,mask_0,mask_p1);
-        mask = maskMod(ind,mask_in);
+        mask = maskMod(ind,mask_in, Gpluses, Gminuses);
         for j = 1:size(mask,1)*size(mask,2)*size(mask,3)
-            if A(mask(j)) == 255  % only normal pore voxels (haven't been examined) will be checked
-                void_coord = [X(mask(j)),Y(mask(j)),Z(mask(j))];
+            if A(mask(j)) == 255 && ~isKey(marks, mask(j))  % only normal pore voxels (haven't been examined) will be checked
+                [I,J,K] = ind2sub(dims, mask(j));
+                void_coord = [J-1,I-1,K-1];
                 corner_coord = [void_coord(1)-0.5, void_coord(2)-0.5, void_coord(3)-0.5;
                                 void_coord(1)-0.5, void_coord(2)+0.5, void_coord(3)-0.5;
                                 void_coord(1)+0.5, void_coord(2)-0.5, void_coord(3)-0.5;
@@ -65,48 +61,36 @@ while ~isempty(barrier) && ~isnan(area) && r_eff <= r_cr
                                 void_coord(1)-0.5, void_coord(2)+0.5, void_coord(3)+0.5;
                                 void_coord(1)+0.5, void_coord(2)-0.5, void_coord(3)+0.5;
                                 void_coord(1)+0.5, void_coord(2)+0.5, void_coord(3)+0.5];
-                w = [];
+                w = zeros(8);
                 for k = 1:size(corner_coord,1)
                     vTocorner = corner_coord(k,:) - v; % vector from v to the 8 corners of voxel under examination
-                    w = [w;dot(normal,vTocorner)]; % compute dot products
+                    w(k) = dot(normal,vTocorner); % compute dot products
                 end
                 % Intersecting test: whether the plane P passes through the voxel under examination
                 if (~isempty(find(w>0,1)) && ~isempty(find(w<0,1))) || (~isempty(find(w==0,1)) && length(find(w>=0))==length(w))
                     barrier_new = [barrier_new;mask(j)];
-                    BARRIER_Coord_new = [BARRIER_Coord_new; void_coord];
-                    A(mask(j))=150; % mark as barrier voxel
+                    barrier_coord_new = [barrier_coord_new; void_coord];
+                    %A(mask(j))=150; % mark as barrier voxel
+                    marks(mask(j)) = true;
                 else
-                    A(mask(j))=230; % mark as non-barrier voxel
+                    %A(mask(j))=230; % mark as non-barrier voxel
+                    marks(mask(j)) = true;
                 end
             end
         end
     end
     BARRIER = [BARRIER;barrier_new];
-    BARRIER_Coord = [BARRIER_Coord;BARRIER_Coord_new];
-    area_new = polyArea3D_ADV(BARRIER_Coord_new,v,normal);
-    area = area + area_new;
+    BARRIER_Coord = [BARRIER_Coord;barrier_coord_new];
+    area = area + polyArea3D_ADV(barrier_coord_new,v,normal);
+    r_eff = sqrt(area/pi());
     % speed up computation by comparing the current computed area with already computed minimal area
-    if ~isnan(areas_v_min) && area > areas_v_min
+    % Apply "Condition" - if r_eff > r_cr, ignore plane P as a possible throat at v
+    if ~isnan(areas_v_min) && (area > areas_v_min || r_eff > r_cr)
         BARRIER = nan;
         BARRIER_Coord = nan;
         area = nan;
-    else
-        % Compute effective throat radius
-        r_eff = sqrt(area/pi());
-        % Apply "Condition" - if r_eff > r_cr, ignore plane P as a possible throat at v
-        if r_eff > r_cr
-            BARRIER = nan;
-            BARRIER_Coord = nan;
-            area = nan;
-        end
     end
     barrier = barrier_new;
 end
-
-% mark "base" voxel for distinguish
-if ~isnan(BARRIER)
-    A(BARRIER(1))=100; 
-end
-
 
 end
